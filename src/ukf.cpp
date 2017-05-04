@@ -28,7 +28,7 @@ UKF::UKF() {
   std_a_ = 1.2;
 
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = .6;
+  std_yawdd_ = 0.6;
 
   // Laser measurement noise standard deviation position1 in m
   std_laspx_ = 0.15;
@@ -67,6 +67,8 @@ UKF::UKF() {
     weights_[i] = 1/(2*(lambda_+n_aug_));
   }
 
+  //cout<<"weights_:\n"<<weights_<<endl;
+
   // Set initialization to false
   is_initialized_ = false;
 
@@ -103,16 +105,18 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
 
   if (!is_initialized_){
 
-    P_<<1,0,0,0,0,
-      0,1,0,0,0,
-      0,0,1,0,0,
+    P_<<.5,0,0,0,0,
+      0,.5,0,0,0,
+      0,0,.1,0,0,
       0,0,0,1,0,
-      0,0,0,0,1;
+      0,0,0,0,.2;
 
+    
     if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
       /**
       Convert radar from polar to cartesian coordinates and initialize state.
       */
+      return;
       VectorXd meas = meas_package.raw_measurements_;
       x_ << meas[0]*cos(meas[1]), meas[0]*sin(meas[1]),0,0,0;
       time_us_ = meas_package.timestamp_;
@@ -133,11 +137,10 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   }
 
   // Prediction Step
-
   double delta_t = (meas_package.timestamp_ - time_us_)/1000000.0;
-  cout<< "timestamp_:" << meas_package.timestamp_<<endl;
-  cout<< "time_us_:" << time_us_<<endl;
-  cout<< "delta_t:" << delta_t<<endl;
+  //cout<< "timestamp_:" << meas_package.timestamp_<<endl;
+  //cout<< "time_us_:" << time_us_<<endl;
+  //cout<< "delta_t:" << delta_t<<endl;
 
   Prediction(delta_t);
 
@@ -224,25 +227,27 @@ void UKF::Prediction(double delta_t) {
     Xsig_aug.col(i) = x_aug + col;
     Xsig_aug.col(i+n_aug_) = x_aug - col;
   }
-  //cout<<"Xsig_aug:\n"<<Xsig_aug.col(0)<<endl;
+
+  //cout<<"Xsig_aug:\n"<<Xsig_aug<<endl;
   /******Predicting New Sigma points******/
 
   VectorXd transition = VectorXd(n_x_);
   VectorXd noise = VectorXd(n_x_);
 
   MatrixXd x_k = Xsig_aug.topRows(5);
+  MatrixXd nu_k = Xsig_aug.bottomRows(2);
 
   double delta_t_2 = delta_t*delta_t;
 
   for(int i=0; i<2*n_aug_+1; i++){
     // Assign names to values in Xsig_aug
-    double p_x = Xsig_aug(0,i);
-    double p_y = Xsig_aug(1,i);
-    double v = Xsig_aug(2,i);
-    double yaw = Xsig_aug(3,i);
-    double yawd = Xsig_aug(4,i);
-    double nu_a = Xsig_aug(5,i);
-    double nu_yawdd = Xsig_aug(6,i);
+    double p_x = x_k(0,i);
+    double p_y = x_k(1,i);
+    double v = x_k(2,i);
+    double yaw = x_k(3,i);
+    double yawd = x_k(4,i);
+    double nu_a = nu_k(0,i);
+    double nu_yawdd = nu_k(1,i);
 
 
     // Calculation noise vector
@@ -250,18 +255,18 @@ void UKF::Prediction(double delta_t) {
     noise[1] = 0.5*delta_t_2*sin(yaw)*nu_a;
     noise[2] = delta_t*nu_a;
     noise[3] = 0.5*delta_t_2*nu_yawdd;
-    noise[0] = delta_t*nu_yawdd;
+    noise[4] = delta_t*nu_yawdd;
 
     // Calculating transition vector
     transition.fill(0.0);
 
-    if (fabs(yawd)<0.001){
+    if (yawd==0){
       transition[0] = v*cos(yaw)*delta_t;
       transition[1] = v*sin(yaw)*delta_t;
     }
     else{
-      transition[0] = (sin(yaw+yawd*delta_t)-sin(yaw))*v/yawd;
-      transition[1] = (-cos(yaw+yawd*delta_t)+cos(yaw))*v/yawd;
+      transition[0] = v*(sin(yaw+yawd*delta_t)-sin(yaw))/yawd;
+      transition[1] = v*(-cos(yaw+yawd*delta_t)+cos(yaw))/yawd;
       transition[3] = yawd*delta_t;
     }
 
@@ -269,7 +274,7 @@ void UKF::Prediction(double delta_t) {
   }
 
   /******Predict Weighted Mean and Covariance of Sigma points******/
-  //cout<<"Xsig_pred_:\n"<< Xsig_pred_.col(0)<<endl;
+  //cout<<"Xsig_pred_:\n"<< Xsig_pred_<<endl;
   VectorXd x_pred = VectorXd(n_x_);
   x_pred.fill(0.0);
 
@@ -292,8 +297,8 @@ void UKF::Prediction(double delta_t) {
 
   x_ = x_pred;
   P_ = P_pred;
-  cout<<"Prection P_:"<< endl<< P_<<endl;
-  cout<<"Prediction x_:"<<endl<< x_<<endl;
+  //cout<<"Prection P_:"<< endl<< P_<<endl;
+  //cout<<"Prediction x_:"<<endl<< x_<<endl;
 
 
 }
@@ -384,8 +389,8 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
   /******Calculate NIS******/
   NIS_laser_ = meas_diff.transpose()*Si*meas_diff;
 
-  cout<<"Laser P_:"<< endl<< P_<<endl;
-  cout<<"Laser x_:"<<endl<< x_<<endl;
+  //cout<<"Laser P_:"<< endl<< P_<<endl;
+  //cout<<"Laser x_:"<<endl<< x_<<endl;
 }
 
 /**
@@ -442,6 +447,8 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
     z_pred += weights_[i]*Zsig.col(i);
   }
 
+  //cout<<"z_pred:\n"<<z_pred<<endl;
+
   // Calculate measurement covariance matrix
   S += R;
   for(int i=0; i<2*n_aug_+1; i++){
@@ -454,6 +461,7 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   }
 
   /******Radar measurement update******/
+  //cout<<"S:\n"<<S<<endl;
 
   // Current measurement
   VectorXd z = meas_package.raw_measurements_;
@@ -495,8 +503,8 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   /******Calculate NIS******/
   NIS_radar_ = meas_diff.transpose()*Si*meas_diff;
 
-  cout<<"Radar P_:"<< endl<< P_<<endl;
-  cout<<"Radar x_:"<<endl<< x_<<endl;
+  //cout<<"Radar P_:"<< endl<< P_<<endl;
+  //cout<<"Radar x_:"<<endl<< x_<<endl;
 
 
 }
